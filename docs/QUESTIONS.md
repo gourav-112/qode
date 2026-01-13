@@ -279,3 +279,47 @@ pct_change = (current_price - opening_price) / opening_price * 100;
 - Use daily open from market data
 - Rolling window average
 - Previous close from reference data
+
+---
+
+## Latency Tracking
+
+### 1. Sorting is O(n log n) - how can you calculate percentiles faster?
+
+**Answer**: Use a **Histogram** (Frequency Array).
+
+Instead of storing all 'N' samples and sorting them, we define buckets for latency ranges and increment counters.
+
+*   **Complexity**:
+    *   **Record**: O(1) - just increment `buckets[latency]`
+    *   **Calculate P99**: O(B) where B is number of buckets (iterate until count reaches 99% of total)
+    *   **Memory**: Fixed size (e.g., 100k buckets), independent of 'N' samples.
+
+**Our Implementation**:
+We use a `LatencyTracker` with a `std::vector<uint64_t> histogram_` of 100,000 buckets (100ns precision up to 10ms, plus overflow).
+
+### 2. How do you minimize the overhead of timestamping?
+
+**Techniques**:
+
+1.  **RDTSC Instruction**: Use CPU cycle counter (Read Time-Stamp Counter) instead of system calls like `clock_gettime` or `gettimeofday`.
+    *   `rdtsc` takes ~20 CPU cycles.
+    *   `clock_gettime` takes ~100-200 nanoseconds (syscall or vdso overhead).
+2.  **Avoid Conversions**: Store raw cycle counts in the hot path. Convert to wall-time (nanoseconds) only when reporting statistics (lazy evaluation).
+3.  **Cpu Frequency Scaling**: Ensure CPU affinity and disable frequency scaling (turbo boost) so cycle-to-time conversion remains constant (or use `rdtscp`).
+
+**Our Code**: Currently uses `std::chrono::high_resolution_clock` for portability/simplicity, but in strict low-latency production, `rdtsc` is the standard.
+
+### 3. What granularity of histogram buckets balances accuracy vs memory?
+
+**Balance Strategy**:
+
+*   **Granularity**: 100 nanoseconds (0.1 microseconds).
+    *   Market data latency matters in microseconds. 100ns provides sufficient detail to distinguish between 5.1us and 5.2us.
+*   **Range**: 0 to 10 milliseconds (10,000 microseconds).
+    *   Covers the "normal" operation range.
+*   **Memory Usage**:
+    *   100,000 buckets * 8 bytes (uint64_t) ≈ 800 KB.
+    *   This fits comfortably in L3 cache (often even L2), preventing cache misses during recording.
+
+For values > 10ms (outliers), we use a single "overflow" bucket, as the exact value matters less than the fact it was "huge". High Dynamic Range (HDR) Histograms use logarithmic buckets to cover huge ranges with small memory, but linear buckets are faster to index (no log calculation needed).

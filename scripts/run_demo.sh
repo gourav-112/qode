@@ -20,9 +20,10 @@ if [ ! -f "build/exchange_simulator" ] || [ ! -f "build/feed_handler" ]; then
     echo ""
 fi
 
-# Start server in background
+# Start server in background, redirect output to log file
 echo -e "${YELLOW}Starting Exchange Simulator...${NC}"
-./build/exchange_simulator -r 50000 &
+echo "Server output will be written to output.log"
+./build/exchange_simulator -r 50000 > output.log 2>&1 &
 SERVER_PID=$!
 
 # Wait for server to start
@@ -37,13 +38,14 @@ fi
 echo -e "${GREEN}Server started (PID: $SERVER_PID)${NC}"
 echo ""
 
-# Start client (foreground)
+# Start client (foreground) with dump file
 echo -e "${YELLOW}Starting Feed Handler...${NC}"
 echo -e "${YELLOW}Press 'q' to quit, 'r' to reset stats${NC}"
+echo -e "${YELLOW}Messages will be dumped to: dump${NC}"
 echo ""
 sleep 1
 
-./build/feed_handler
+./build/feed_handler --dump dump
 
 # Cleanup
 echo ""
